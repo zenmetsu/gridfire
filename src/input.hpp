@@ -7,6 +7,8 @@ struct Input {
     Input(GLFWwindow* window);
     void updateCamera(float deltaTime);
     Camera getCamera() const;
+    bool toggleImGuiWindow();
+    void processImGuiInput();
 
 private:
     GLFWwindow* window;
@@ -14,4 +16,6 @@ private:
     double lastX, lastY;
     bool firstMouse;
     float yaw, pitch, roll;
+    bool lastF3State;
+    bool showImGuiWindow;
 };

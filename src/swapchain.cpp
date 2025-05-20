@@ -2,6 +2,13 @@
 #include "pipeline.hpp"
 #include <stdexcept>
 #include <algorithm>
+#include <imgui_impl_vulkan.h>
+#include <imgui_impl_glfw.h>
+
+static PFN_vkVoidFunction ImGui_ImplVulkan_GetInstanceProcAddr(const char* name, void* user_data) {
+    VkInstance instance = *(VkInstance*)user_data;
+    return vkGetInstanceProcAddr(instance, name);
+}
 
 Swapchain::Swapchain(const Device& device) : device(device), currentFrame(0) {
     // Query surface capabilities
@@ -187,6 +194,38 @@ Swapchain::Swapchain(const Device& device) : device(device), currentFrame(0) {
             throw std::runtime_error("Failed to create synchronization objects");
         }
     }
+
+    // Load Vulkan function pointers for ImGui
+    ImGui_ImplVulkan_LoadFunctions(ImGui_ImplVulkan_GetInstanceProcAddr, (void*)&device.instance);
+
+    // Initialize ImGui Vulkan backend
+    ImGui_ImplVulkan_InitInfo initInfo = {};
+    initInfo.Instance = device.instance;
+    initInfo.PhysicalDevice = device.physicalDevice;
+    initInfo.Device = device.device;
+    initInfo.QueueFamily = device.graphicsFamily;
+    initInfo.Queue = device.graphicsQueue;
+    initInfo.PipelineCache = VK_NULL_HANDLE;
+    initInfo.DescriptorPool = device.descriptorPool;
+    initInfo.Allocator = nullptr;
+    initInfo.MinImageCount = imageCount;
+    initInfo.ImageCount = imageCount;
+    initInfo.RenderPass = renderPass;
+    initInfo.Subpass = 0;
+    initInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+    initInfo.CheckVkResultFn = [](VkResult err) {
+        if (err != VK_SUCCESS) throw std::runtime_error("ImGui Vulkan error");
+    };
+    if (!ImGui_ImplVulkan_Init(&initInfo)) {
+        throw std::runtime_error("Failed to initialize ImGui Vulkan backend");
+    }
+
+    // Upload ImGui fonts
+    if (!ImGui_ImplVulkan_CreateFontsTexture()) {
+        throw std::runtime_error("Failed to create ImGui fonts texture");
+    }
+
+    // Note: Fonts texture is automatically destroyed when ImGui_ImplVulkan_Shutdown is called
 }
 
 void Swapchain::createFramebuffers(const Pipeline& pipeline) {
@@ -210,7 +249,11 @@ void Swapchain::createFramebuffers(const Pipeline& pipeline) {
     }
 }
 
-void Swapchain::drawFrame(const Pipeline& pipeline) {
+void Swapchain::renderImGui(VkCommandBuffer commandBuffer) {
+    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
+}
+
+void Swapchain::drawFrame(const Pipeline& pipeline, bool showImGuiWindow) {
     vkWaitForFences(device.device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
 
     uint32_t imageIndex;
@@ -252,6 +295,11 @@ void Swapchain::drawFrame(const Pipeline& pipeline) {
     vkCmdBindDescriptorSets(commandBuffers[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipelineLayout, 0, 1, descriptorSets, 0, nullptr);
 
     vkCmdDraw(commandBuffers[imageIndex], 3, 1, 0, 0);
+
+    if (showImGuiWindow) {
+        renderImGui(commandBuffers[imageIndex]);
+    }
+
     vkCmdEndRenderPass(commandBuffers[imageIndex]);
 
     if (vkEndCommandBuffer(commandBuffers[imageIndex]) != VK_SUCCESS) {
@@ -293,6 +341,7 @@ void Swapchain::drawFrame(const Pipeline& pipeline) {
 }
 
 Swapchain::~Swapchain() {
+    ImGui_ImplVulkan_Shutdown();
     for (auto framebuffer : framebuffers) {
         vkDestroyFramebuffer(device.device, framebuffer, nullptr);
     }

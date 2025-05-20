@@ -12,6 +12,8 @@ struct Device {
     VkSurfaceKHR surface;
     uint32_t graphicsFamily;
     uint32_t presentFamily;
+    VkDescriptorPool descriptorPool;
+    VkDebugUtilsMessengerEXT debugMessenger;
 
     Device(GLFWwindow* window);
     ~Device();

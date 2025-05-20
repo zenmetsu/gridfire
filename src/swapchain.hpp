@@ -2,6 +2,7 @@
 #include "device.hpp"
 #include <vulkan/vulkan.h>
 #include <vector>
+#include <imgui.h>
 
 struct Pipeline; // Forward declaration
 
@@ -26,5 +27,6 @@ struct Swapchain {
     ~Swapchain();
 
     void createFramebuffers(const Pipeline& pipeline);
-    void drawFrame(const Pipeline& pipeline);
+    void drawFrame(const Pipeline& pipeline, bool showImGuiWindow);
+    void renderImGui(VkCommandBuffer commandBuffer);
 };

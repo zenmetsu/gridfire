@@ -13,7 +13,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Set default build type if not specified
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
-    set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Choose the type of build" FORCE)
+	set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Choose the type of build" FORCE)
     set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release" "MinSizeRel" "RelWithDebInfo")
 endif()
 
@@ -45,6 +45,36 @@ endif()
 if(ENABLE_VERBOSE_BUILD)
     set(CMAKE_VERBOSE_MAKEFILE ON CACHE BOOL "Show detailed build output" FORCE)
 endif()
+
+# Download and build ImGui
+include(FetchContent)
+FetchContent_Declare(
+    imgui
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG v1.91.3
+)
+FetchContent_MakeAvailable(imgui)
+
+# Create ImGui static library
+add_library(imgui STATIC
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_vulkan.cpp
+)
+target_include_directories(imgui PUBLIC
+    ${imgui_SOURCE_DIR}
+    ${imgui_SOURCE_DIR}/backends
+)
+target_link_libraries(imgui PUBLIC
+    Vulkan::Vulkan
+    glfw
+)
+target_compile_definitions(imgui PUBLIC
+    IMGUI_IMPL_VULKAN_NO_PROTOTYPES
+)
 
 # Shader compilation
 set(SHADER_DIR "${CMAKE_SOURCE_DIR}/src/shaders")
@@ -92,6 +122,7 @@ target_link_libraries(gridfire PRIVATE
     Vulkan::Vulkan
     glfw
     glm::glm
+    imgui
 )
 
 # Generate configuration header
