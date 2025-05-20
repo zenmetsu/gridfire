@@ -1,8 +1,10 @@
 #include "pipeline.hpp"
+#include "gridfire_config.h"
 #include <stdexcept>
 #include <fstream>
 #include <glm/gtc/matrix_transform.hpp>
 #include <cstring>
+#include <iostream>
 
 struct UniformBufferObject {
     alignas(16) glm::mat4 view;
@@ -11,9 +13,25 @@ struct UniformBufferObject {
 };
 
 static std::vector<char> readFile(const std::string& filename) {
-    std::ifstream file(filename, std::ios::ate | std::ios::binary);
+    // Try local development path first (build/shaders/)
+    std::string devPath = "shaders/" + filename;
+    std::cout << "Attempting to load shader (dev): " << devPath << std::endl;
+    std::ifstream file(devPath, std::ios::ate | std::ios::binary);
+    if (file.is_open()) {
+        size_t fileSize = static_cast<size_t>(file.tellg());
+        std::vector<char> buffer(fileSize);
+        file.seekg(0);
+        file.read(buffer.data(), fileSize);
+        file.close();
+        return buffer;
+    }
+
+    // Fall back to installed path
+    std::string fullPath = std::string(GRIDFIRE_SHADER_DIR) + "/" + filename;
+    std::cout << "Attempting to load shader (installed): " << fullPath << std::endl;
+    file.open(fullPath, std::ios::ate | std::ios::binary);
     if (!file.is_open()) {
-        throw std::runtime_error("Failed to open file: " + filename);
+        throw std::runtime_error("Failed to open file: " + fullPath + " (also tried " + devPath + ")");
     }
     size_t fileSize = static_cast<size_t>(file.tellg());
     std::vector<char> buffer(fileSize);
@@ -271,7 +289,7 @@ void Pipeline::updateUBO(const Camera& camera) {
     memcpy(data, &ubo, sizeof(ubo));
     vkUnmapMemory(device.device, uniformBuffersMemory[currentFrame]);
 
-    currentFrame = (currentFrame + 1) % uniformBuffers.size(); // Increment frame index
+    currentFrame = (currentFrame + 1) % uniformBuffers.size();
 }
 
 Pipeline::~Pipeline() {
