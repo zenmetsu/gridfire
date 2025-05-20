@@ -28,10 +28,7 @@ vec3 calcNormal(vec3 p) {
 }
 
 void main() {
-    // Calculate aspect ratio from projection matrix
-    float aspectRatio = ubo.proj[1][1] / ubo.proj[0][0];
     vec2 uv = fragCoord * 0.5;
-    uv.x *= aspectRatio; // Scale X by aspect ratio
     vec3 ro = ubo.camPos;
     vec3 rd = normalize((inverse(ubo.view) * inverse(ubo.proj) * vec4(uv, 1.0, 1.0)).xyz);
 
