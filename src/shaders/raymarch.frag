@@ -1,0 +1,54 @@
+#version 450
+layout(location = 0) in vec2 fragCoord;
+layout(location = 0) out vec4 outColor;
+
+layout(binding = 0) uniform UniformBufferObject {
+    mat4 view;
+    mat4 proj;
+    vec3 camPos;
+} ubo;
+
+float sphereSDF(vec3 p, vec3 center, float radius) {
+    return length(p - center) - radius;
+}
+
+float sceneSDF(vec3 p) {
+    return sphereSDF(p, vec3(0.0, 0.0, 0.0), 1.0);
+}
+
+vec3 calcNormal(vec3 p) {
+    float h = 0.001;
+    vec2 k = vec2(1, -1);
+    return normalize(
+        k.xyy * sceneSDF(p + k.xyy * h) +
+        k.yyx * sceneSDF(p + k.yyx * h) +
+        k.yxy * sceneSDF(p + k.yxy * h) +
+        k.xxx * sceneSDF(p + k.xxx * h)
+    );
+}
+
+void main() {
+    vec2 uv = fragCoord * 0.5;
+    vec3 ro = ubo.camPos;
+    vec3 rd = normalize((inverse(ubo.view) * inverse(ubo.proj) * vec4(uv, 1.0, 1.0)).xyz);
+
+    float t = 0.0;
+    vec3 p;
+    bool hit = false;
+    for (int i = 0; i < 100; ++i) {
+        p = ro + rd * t;
+        float dist = sceneSDF(p);
+        if (dist < 0.001) {
+            hit = true;
+            break;
+        }
+        t += dist;
+        if (t > 100.0) break;
+    }
+
+    if (hit) {
+        outColor = vec4(0.0, 0.0, 0.0, 1.0); // Black sphere
+    } else {
+        outColor = vec4(1.0, 1.0, 1.0, 1.0); // White background
+    }
+}
