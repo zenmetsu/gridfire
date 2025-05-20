@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <imgui_impl_glfw.h>
 
-Input::Input(GLFWwindow* window) : window(window), firstMouse(true), yaw(-90.0f), pitch(0.0f), roll(0.0f), lastF3State(false), showImGuiWindow(false) {
+Input::Input(GLFWwindow* window) : window(window), firstMouse(true), yaw(-90.0f), pitch(0.0f), roll(0.0f), lastF3State(false), showImGuiWindow(false), lastF9State(false), frameTime(0.0f) {
     camera.position = glm::vec3(0.0f, 0.0f, 3.0f);
     camera.forward = glm::vec3(0.0f, 0.0f, -1.0f);
     camera.up = glm::vec3(0.0f, 1.0f, 0.0f);
@@ -14,32 +14,35 @@ Input::Input(GLFWwindow* window) : window(window), firstMouse(true), yaw(-90.0f)
 }
 
 void Input::updateCamera(float deltaTime) {
+    frameTime = deltaTime;
+
     // Keyboard input
     float moveSpeed = 5.0f;
     glm::vec3 right = glm::normalize(glm::cross(camera.forward, camera.up));
 
-    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS && !ImGui::GetIO().WantCaptureKeyboard) {
+    // Allow camera movement unless ImGui explicitly needs keyboard input
+    if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
         camera.position += camera.forward * moveSpeed * deltaTime;
     }
-    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS && !ImGui::GetIO().WantCaptureKeyboard) {
+    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
         camera.position -= camera.forward * moveSpeed * deltaTime;
     }
-    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS && !ImGui::GetIO().WantCaptureKeyboard) {
+    if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
         camera.position -= right * moveSpeed * deltaTime;
     }
-    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS && !ImGui::GetIO().WantCaptureKeyboard) {
+    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
         camera.position += right * moveSpeed * deltaTime;
     }
-    if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS && !ImGui::GetIO().WantCaptureKeyboard) {
+    if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) {
         camera.position += camera.up * moveSpeed * deltaTime;
     }
-    if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS && !ImGui::GetIO().WantCaptureKeyboard) {
+    if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS) {
         camera.position -= camera.up * moveSpeed * deltaTime;
     }
-    if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS && !ImGui::GetIO().WantCaptureKeyboard) {
+    if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS) {
         roll -= 45.0f * deltaTime;
     }
-    if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS && !ImGui::GetIO().WantCaptureKeyboard) {
+    if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS) {
         roll += 45.0f * deltaTime;
     }
 
@@ -95,8 +98,19 @@ bool Input::toggleImGuiWindow() {
     return showImGuiWindow;
 }
 
+bool Input::shouldExit() {
+    bool currentF9State = glfwGetKey(window, GLFW_KEY_F9) == GLFW_PRESS;
+    bool toggle = !lastF9State && currentF9State;
+    lastF9State = currentF9State;
+    return toggle;
+}
+
 void Input::processImGuiInput() {
     ImGui_ImplGlfw_NewFrame();
+}
+
+float Input::getFrameTime() const {
+    return frameTime;
 }
 
 Camera Input::getCamera() const {

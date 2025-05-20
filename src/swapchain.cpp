@@ -36,7 +36,7 @@ Swapchain::Swapchain(const Device& device) : device(device), currentFrame(0) {
     imageFormat = surfaceFormat.format;
 
     // Choose present mode
-    VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
+    presentMode = VK_PRESENT_MODE_FIFO_KHR;
     for (const auto& mode : presentModes) {
         if (mode == VK_PRESENT_MODE_MAILBOX_KHR) {
             presentMode = mode;
@@ -338,6 +338,14 @@ void Swapchain::drawFrame(const Pipeline& pipeline, bool showImGuiWindow) {
     vkQueuePresentKHR(device.presentQueue, &presentInfo);
 
     currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
+}
+
+uint32_t Swapchain::getImageCount() const {
+    return static_cast<uint32_t>(images.size());
+}
+
+VkPresentModeKHR Swapchain::getPresentMode() const {
+    return presentMode;
 }
 
 Swapchain::~Swapchain() {

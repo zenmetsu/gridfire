@@ -9,6 +9,8 @@ struct Input {
     Camera getCamera() const;
     bool toggleImGuiWindow();
     void processImGuiInput();
+    bool shouldExit();
+    float getFrameTime() const;
 
 private:
     GLFWwindow* window;
@@ -18,4 +20,6 @@ private:
     float yaw, pitch, roll;
     bool lastF3State;
     bool showImGuiWindow;
+    bool lastF9State;
+    float frameTime;
 };

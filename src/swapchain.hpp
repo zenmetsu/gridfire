@@ -22,6 +22,7 @@ struct Swapchain {
     std::vector<VkFence> inFlightFences;
     uint32_t currentFrame;
     const uint32_t MAX_FRAMES_IN_FLIGHT = 2;
+    VkPresentModeKHR presentMode;
 
     Swapchain(const Device& device);
     ~Swapchain();
@@ -29,4 +30,6 @@ struct Swapchain {
     void createFramebuffers(const Pipeline& pipeline);
     void drawFrame(const Pipeline& pipeline, bool showImGuiWindow);
     void renderImGui(VkCommandBuffer commandBuffer);
+    uint32_t getImageCount() const;
+    VkPresentModeKHR getPresentMode() const;
 };

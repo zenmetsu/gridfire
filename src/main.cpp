@@ -8,6 +8,7 @@
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_vulkan.h>
+#include <sstream>
 
 int main() {
     glfwInit();
@@ -56,23 +57,53 @@ int main() {
             ImGui_ImplGlfw_NewFrame();
             ImGui::NewFrame();
 
-            // Create ImGui window if enabled
+            // Check for exit
+            bool shouldExit = input.shouldExit();
+
+            // Create ImGui debug window if enabled
             bool showImGuiWindow = input.toggleImGuiWindow();
             if (showImGuiWindow) {
                 ImGui::SetNextWindowPos(ImVec2(swapchain.extent.width - 210.0f, 10.0f), ImGuiCond_Always);
-                ImGui::SetNextWindowSize(ImVec2(200.0f, 100.0f), ImGuiCond_Always);
-                ImGui::Begin("Debug Window", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
-                ImGui::Text("Hello World");
+                ImGui::SetNextWindowSize(ImVec2(200.0f, 150.0f), ImGuiCond_Always);
+                ImGui::Begin("Debug Info", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoInputs);
+
+                // Frame time and FPS
+                float frameTimeMs = input.getFrameTime() * 1000.0f;
+                float fps = frameTimeMs > 0.0f ? 1000.0f / frameTimeMs : 0.0f;
+                ImGui::Text("Frame Time: %.2f ms", frameTimeMs);
+                ImGui::Text("FPS: %.1f", fps);
+
+                // Resolution
+                ImGui::Text("Resolution: %ux%u", swapchain.extent.width, swapchain.extent.height);
+
+                // Swapchain info
+                ImGui::Text("Image Count: %u", swapchain.getImageCount());
+                std::string presentModeStr;
+                switch (swapchain.getPresentMode()) {
+                    case VK_PRESENT_MODE_IMMEDIATE_KHR: presentModeStr = "Immediate"; break;
+                    case VK_PRESENT_MODE_MAILBOX_KHR: presentModeStr = "Mailbox"; break;
+                    case VK_PRESENT_MODE_FIFO_KHR: presentModeStr = "FIFO"; break;
+                    case VK_PRESENT_MODE_FIFO_RELAXED_KHR: presentModeStr = "FIFO Relaxed"; break;
+                    default: presentModeStr = "Unknown"; break;
+                }
+                ImGui::Text("Present Mode: %s", presentModeStr.c_str());
+
                 ImGui::End();
             }
 
             // Render ImGui
             ImGui::Render();
 
+            // Update game state
             input.updateCamera(deltaTime);
             input.processImGuiInput();
             pipeline.updateUBO(input.getCamera());
             swapchain.drawFrame(pipeline, showImGuiWindow);
+
+            // Handle exit after rendering to ensure ImGui frame is complete
+            if (shouldExit) {
+                glfwSetWindowShouldClose(window, GLFW_TRUE);
+            }
         }
 
         device.waitIdle();
