@@ -1,14 +1,28 @@
+#define GLM_ENABLE_EXPERIMENTAL
 #include "input.hpp"
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/quaternion.hpp>
 #include <algorithm>
 #include <imgui_impl_glfw.h>
 
-Input::Input(GLFWwindow* window) : window(window), firstMouse(true), yaw(-90.0f), pitch(0.0f), roll(0.0f), lastF3State(false), showImGuiWindow(false), lastF9State(false), frameTime(0.0f) {
-    camera.position = glm::vec3(0.0f, 0.0f, 3.0f);
-    camera.forward = glm::vec3(0.0f, 0.0f, -1.0f);
-    camera.up = glm::vec3(0.0f, 1.0f, 0.0f);
-    camera.view = glm::lookAt(camera.position, camera.position + camera.forward, camera.up);
-    camera.proj = glm::perspective(glm::radians(45.0f), 800.0f / 600.0f, 0.1f, 100.0f);
+Input::Input(GLFWwindow* window) 
+    : window(window), 
+      firstMouse(true), 
+      lastF3State(false), 
+      showImGuiWindow(false), 
+      lastF9State(false), 
+      frameTime(0.0f) {
+    player.position = glm::vec3(0.0f, 0.0f, 0.0f); // Start at origin
+    player.forward = glm::vec3(0.0f, 0.0f, -1.0f); // Vulkan: -Z forward
+    player.up = glm::vec3(0.0f, 1.0f, 0.0f);       // +Y up
+    // Initialize quaternion
+    orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f); // Identity quaternion
+    // Compute initial view matrix
+    glm::mat4 rotation = glm::toMat4(orientation);
+    player.view = glm::inverse(glm::translate(glm::mat4(1.0f), player.position) * rotation);
+    player.proj = glm::perspective(glm::radians(80.0f), 800.0f / 600.0f, 0.1f, 100.0f);
+    // Flip Y for Vulkan's NDC (Y-down)
+    player.proj[1][1] *= -1.0f;
 
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 }
@@ -16,37 +30,45 @@ Input::Input(GLFWwindow* window) : window(window), firstMouse(true), yaw(-90.0f)
 void Input::updateCamera(float deltaTime) {
     frameTime = deltaTime;
 
-    // Keyboard input
-    float moveSpeed = 5.0f;
-    glm::vec3 right = glm::normalize(glm::cross(camera.forward, camera.up));
+    // Derive local axes from quaternion
+    glm::mat4 rotation = glm::toMat4(orientation);
+    glm::vec3 right = glm::normalize(glm::vec3(rotation[0]));    // Local X
+    player.up = glm::normalize(glm::vec3(rotation[1]));          // Local Y
+    player.forward = glm::normalize(glm::vec3(rotation[2]));     // Local Z
 
-    // Allow camera movement unless ImGui explicitly needs keyboard input
+    // Keyboard input for movement
+    float moveSpeed = 5.0f;
+    // Corrected translations
     if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
-        camera.position += camera.forward * moveSpeed * deltaTime;
+        player.position -= player.forward * moveSpeed * deltaTime; // Forward
     }
     if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
-        camera.position -= camera.forward * moveSpeed * deltaTime;
+        player.position += player.forward * moveSpeed * deltaTime; // Backward
     }
     if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
-        camera.position -= right * moveSpeed * deltaTime;
+        player.position += right * moveSpeed * deltaTime; // Left (restored)
     }
     if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
-        camera.position += right * moveSpeed * deltaTime;
+        player.position -= right * moveSpeed * deltaTime; // Right (restored)
     }
     if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) {
-        camera.position += camera.up * moveSpeed * deltaTime;
+        player.position += player.up * moveSpeed * deltaTime; // Up
     }
     if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS) {
-        camera.position -= camera.up * moveSpeed * deltaTime;
-    }
-    if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS) {
-        roll -= 45.0f * deltaTime;
-    }
-    if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS) {
-        roll += 45.0f * deltaTime;
+        player.position -= player.up * moveSpeed * deltaTime; // Down
     }
 
-    // Mouse input
+    // Roll input (Q/E)
+    float rollSpeed = 4.5f; // Reduced to 5% of 90.0f
+    float rollAngle = 0.0f;
+    if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS) {
+        rollAngle += rollSpeed * deltaTime; // Counterclockwise (will be negated)
+    }
+    if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS) {
+        rollAngle -= rollSpeed * deltaTime; // Clockwise (will be negated)
+    }
+
+    // Mouse input for rotation
     double xpos, ypos;
     glfwGetCursorPos(window, &xpos, &ypos);
 
@@ -58,7 +80,7 @@ void Input::updateCamera(float deltaTime) {
 
     if (!ImGui::GetIO().WantCaptureMouse) {
         float xoffset = static_cast<float>(xpos - lastX);
-        float yoffset = static_cast<float>(lastY - ypos);
+        float yoffset = static_cast<float>(lastY - ypos); // Reversed Y
         lastX = xpos;
         lastY = ypos;
 
@@ -66,26 +88,30 @@ void Input::updateCamera(float deltaTime) {
         xoffset *= sensitivity;
         yoffset *= sensitivity;
 
-        yaw += xoffset;
-        pitch += yoffset;
+        // Convert to radians
+        float yawAngle = glm::radians(xoffset);   // Mouse X for yaw
+        float pitchAngle = glm::radians(yoffset); // Mouse Y for pitch
 
-        pitch = std::clamp(pitch, -89.0f, 89.0f);
+        // Create quaternions for rotations in local space
+        glm::quat yawQuat = glm::angleAxis(yawAngle, player.up);        // Yaw (correct)
+        glm::quat pitchQuat = glm::angleAxis(-pitchAngle, right);       // Pitch (reversed)
+        glm::quat rollQuat = glm::angleAxis(-rollAngle, player.forward); // Roll (reversed)
 
-        glm::vec3 direction;
-        direction.x = cos(glm::radians(yaw)) * cos(glm::radians(pitch));
-        direction.y = sin(glm::radians(pitch));
-        direction.z = sin(glm::radians(yaw)) * cos(glm::radians(pitch));
-        camera.forward = glm::normalize(direction);
+        // Apply rotations: yaw, pitch, roll
+        orientation = glm::normalize(yawQuat * pitchQuat * rollQuat * orientation);
 
-        // Apply roll
-        glm::mat4 rollMatrix = glm::rotate(glm::mat4(1.0f), glm::radians(roll), camera.forward);
-        camera.up = glm::vec3(rollMatrix * glm::vec4(0.0f, 1.0f, 0.0f, 0.0f));
+        // Recompute axes to ensure orthogonality
+        rotation = glm::toMat4(orientation);
+        right = glm::normalize(glm::vec3(rotation[0]));
+        player.up = glm::normalize(glm::vec3(rotation[1]));
+        player.forward = glm::normalize(glm::vec3(rotation[2]));
     } else {
         lastX = xpos;
         lastY = ypos;
     }
 
-    camera.view = glm::lookAt(camera.position, camera.position + camera.forward, camera.up);
+    // Update view matrix: inverse of (translate * rotate)
+    player.view = glm::inverse(glm::translate(glm::mat4(1.0f), player.position) * glm::toMat4(orientation));
 }
 
 bool Input::toggleImGuiWindow() {
@@ -114,5 +140,11 @@ float Input::getFrameTime() const {
 }
 
 Camera Input::getCamera() const {
+    Camera camera;
+    camera.position = player.position;
+    camera.forward = player.forward;
+    camera.up = player.up;
+    camera.view = player.view;
+    camera.proj = player.proj;
     return camera;
 }

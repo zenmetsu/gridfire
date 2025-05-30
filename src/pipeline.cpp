@@ -10,6 +10,7 @@ struct UniformBufferObject {
     alignas(16) glm::mat4 view;
     alignas(16) glm::mat4 proj;
     alignas(16) glm::vec3 camPos;
+    float time;
 };
 
 static std::vector<char> readFile(const std::string& filename) {
@@ -283,6 +284,7 @@ void Pipeline::updateUBO(const Camera& camera) {
     ubo.view = camera.view;
     ubo.proj = camera.proj;
     ubo.camPos = camera.position;
+    ubo.time = static_cast<float>(glfwGetTime());
 
     void* data;
     vkMapMemory(device.device, uniformBuffersMemory[currentFrame], 0, sizeof(ubo), 0, &data);
