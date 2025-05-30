@@ -10,18 +10,17 @@ Input::Input(GLFWwindow* window)
       firstMouse(true), 
       lastF3State(false), 
       showImGuiWindow(false), 
+      lastF4State(false), // Initialize
+      showHUD(true),      // HUD on by default
       lastF9State(false), 
       frameTime(0.0f) {
-    player.position = glm::vec3(0.0f, 0.0f, 0.0f); // Start at origin
-    player.forward = glm::vec3(0.0f, 0.0f, -1.0f); // Vulkan: -Z forward
-    player.up = glm::vec3(0.0f, 1.0f, 0.0f);       // +Y up
-    // Initialize quaternion
-    orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f); // Identity quaternion
-    // Compute initial view matrix
+    player.position = glm::vec3(0.0f, 0.0f, 0.0f);
+    player.forward = glm::vec3(0.0f, 0.0f, -1.0f);
+    player.up = glm::vec3(0.0f, 1.0f, 0.0f);
+    orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
     glm::mat4 rotation = glm::toMat4(orientation);
     player.view = glm::inverse(glm::translate(glm::mat4(1.0f), player.position) * rotation);
     player.proj = glm::perspective(glm::radians(80.0f), 800.0f / 600.0f, 0.1f, 100.0f);
-    // Flip Y for Vulkan's NDC (Y-down)
     player.proj[1][1] *= -1.0f;
 
     glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
@@ -112,6 +111,16 @@ void Input::updateCamera(float deltaTime) {
 
     // Update view matrix: inverse of (translate * rotate)
     player.view = glm::inverse(glm::translate(glm::mat4(1.0f), player.position) * glm::toMat4(orientation));
+}
+
+bool Input::toggleHUD() {
+    bool currentF4State = glfwGetKey(window, GLFW_KEY_F4) == GLFW_PRESS;
+    bool toggle = !lastF4State && currentF4State;
+    lastF4State = currentF4State;
+    if (toggle) {
+        showHUD = !showHUD;
+    }
+    return showHUD;
 }
 
 bool Input::toggleImGuiWindow() {

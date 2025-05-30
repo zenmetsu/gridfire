@@ -1,17 +1,12 @@
 #include "swapchain.hpp"
 #include "pipeline.hpp"
+#include "hud_pipeline.hpp"
 #include <stdexcept>
 #include <algorithm>
 #include <imgui_impl_vulkan.h>
 #include <imgui_impl_glfw.h>
 
-static PFN_vkVoidFunction ImGui_ImplVulkan_GetInstanceProcAddr(const char* name, void* user_data) {
-    VkInstance instance = *(VkInstance*)user_data;
-    return vkGetInstanceProcAddr(instance, name);
-}
-
 Swapchain::Swapchain(const Device& device) : device(device), currentFrame(0) {
-    // Query surface capabilities
     VkSurfaceCapabilitiesKHR capabilities;
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(device.physicalDevice, device.surface, &capabilities);
 
@@ -25,7 +20,6 @@ Swapchain::Swapchain(const Device& device) : device(device), currentFrame(0) {
     std::vector<VkPresentModeKHR> presentModes(presentModeCount);
     vkGetPhysicalDeviceSurfacePresentModesKHR(device.physicalDevice, device.surface, &presentModeCount, presentModes.data());
 
-    // Choose surface format
     VkSurfaceFormatKHR surfaceFormat = formats[0];
     for (const auto& format : formats) {
         if (format.format == VK_FORMAT_B8G8R8A8_SRGB && format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
@@ -35,7 +29,6 @@ Swapchain::Swapchain(const Device& device) : device(device), currentFrame(0) {
     }
     imageFormat = surfaceFormat.format;
 
-    // Choose present mode
     presentMode = VK_PRESENT_MODE_FIFO_KHR;
     for (const auto& mode : presentModes) {
         if (mode == VK_PRESENT_MODE_MAILBOX_KHR) {
@@ -44,7 +37,6 @@ Swapchain::Swapchain(const Device& device) : device(device), currentFrame(0) {
         }
     }
 
-    // Choose extent
     if (capabilities.currentExtent.width != UINT32_MAX) {
         extent = capabilities.currentExtent;
     } else {
@@ -53,7 +45,6 @@ Swapchain::Swapchain(const Device& device) : device(device), currentFrame(0) {
         extent.height = std::clamp(extent.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
     }
 
-    // Create swapchain
     uint32_t imageCount = capabilities.minImageCount + 1;
     if (capabilities.maxImageCount > 0 && imageCount > capabilities.maxImageCount) {
         imageCount = capabilities.maxImageCount;
@@ -88,12 +79,10 @@ Swapchain::Swapchain(const Device& device) : device(device), currentFrame(0) {
         throw std::runtime_error("Failed to create swapchain");
     }
 
-    // Get swapchain images
     vkGetSwapchainImagesKHR(device.device, swapchain, &imageCount, nullptr);
     images.resize(imageCount);
     vkGetSwapchainImagesKHR(device.device, swapchain, &imageCount, images.data());
 
-    // Create image views
     imageViews.resize(images.size());
     for (size_t i = 0; i < images.size(); ++i) {
         VkImageViewCreateInfo viewInfo = {};
@@ -112,7 +101,7 @@ Swapchain::Swapchain(const Device& device) : device(device), currentFrame(0) {
         }
     }
 
-    // Create render pass
+    // Create render pass with two subpasses
     VkAttachmentDescription colorAttachment = {};
     colorAttachment.format = imageFormat;
     colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -127,27 +116,38 @@ Swapchain::Swapchain(const Device& device) : device(device), currentFrame(0) {
     colorAttachmentRef.attachment = 0;
     colorAttachmentRef.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
-    VkSubpassDescription subpass = {};
-    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    subpass.colorAttachmentCount = 1;
-    subpass.pColorAttachments = &colorAttachmentRef;
+    VkSubpassDescription subpasses[2] = {};
+    subpasses[0].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpasses[0].colorAttachmentCount = 1;
+    subpasses[0].pColorAttachments = &colorAttachmentRef;
 
-    VkSubpassDependency dependency = {};
-    dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-    dependency.dstSubpass = 0;
-    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dependency.srcAccessMask = 0;
-    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    subpasses[1].pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpasses[1].colorAttachmentCount = 1;
+    subpasses[1].pColorAttachments = &colorAttachmentRef;
+
+    VkSubpassDependency dependencies[2] = {};
+    dependencies[0].srcSubpass = VK_SUBPASS_EXTERNAL;
+    dependencies[0].dstSubpass = 0;
+    dependencies[0].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependencies[0].srcAccessMask = 0;
+    dependencies[0].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependencies[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+    dependencies[1].srcSubpass = 0;
+    dependencies[1].dstSubpass = 1;
+    dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    dependencies[1].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependencies[1].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
 
     VkRenderPassCreateInfo renderPassInfo = {};
     renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
     renderPassInfo.attachmentCount = 1;
     renderPassInfo.pAttachments = &colorAttachment;
-    renderPassInfo.subpassCount = 1;
-    renderPassInfo.pSubpasses = &subpass;
-    renderPassInfo.dependencyCount = 1;
-    renderPassInfo.pDependencies = &dependency;
+    renderPassInfo.subpassCount = 2;
+    renderPassInfo.pSubpasses = subpasses;
+    renderPassInfo.dependencyCount = 2;
+    renderPassInfo.pDependencies = dependencies;
 
     if (vkCreateRenderPass(device.device, &renderPassInfo, nullptr, &renderPass) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create render pass");
@@ -195,9 +195,6 @@ Swapchain::Swapchain(const Device& device) : device(device), currentFrame(0) {
         }
     }
 
-    // Load Vulkan function pointers for ImGui
-    ImGui_ImplVulkan_LoadFunctions(ImGui_ImplVulkan_GetInstanceProcAddr, (void*)&device.instance);
-
     // Initialize ImGui Vulkan backend
     ImGui_ImplVulkan_InitInfo initInfo = {};
     initInfo.Instance = device.instance;
@@ -206,26 +203,25 @@ Swapchain::Swapchain(const Device& device) : device(device), currentFrame(0) {
     initInfo.QueueFamily = device.graphicsFamily;
     initInfo.Queue = device.graphicsQueue;
     initInfo.PipelineCache = VK_NULL_HANDLE;
-    initInfo.DescriptorPool = device.descriptorPool;
+    initInfo.DescriptorPool = device.descriptorPool; // Assumes Device has descriptorPool
     initInfo.Allocator = nullptr;
     initInfo.MinImageCount = imageCount;
     initInfo.ImageCount = imageCount;
-    initInfo.RenderPass = renderPass;
-    initInfo.Subpass = 0;
     initInfo.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+    initInfo.Subpass = 1; // ImGui in HUD subpass
     initInfo.CheckVkResultFn = [](VkResult err) {
         if (err != VK_SUCCESS) throw std::runtime_error("ImGui Vulkan error");
     };
-    if (!ImGui_ImplVulkan_Init(&initInfo)) {
+    if (!ImGui_ImplVulkan_Init(&initInfo, renderPass)) {
         throw std::runtime_error("Failed to initialize ImGui Vulkan backend");
     }
 
-    // Upload ImGui fonts
-    if (!ImGui_ImplVulkan_CreateFontsTexture()) {
+    // Create ImGui fonts texture
+    VkCommandBuffer commandBuffer = beginSingleTimeCommands(device.device, commandPool);
+    if (!ImGui_ImplVulkan_CreateFontsTexture(commandBuffer)) {
         throw std::runtime_error("Failed to create ImGui fonts texture");
     }
-
-    // Note: Fonts texture is automatically destroyed when ImGui_ImplVulkan_Shutdown is called
+    endSingleTimeCommands(device.device, device.graphicsQueue, commandPool, commandBuffer);
 }
 
 void Swapchain::createFramebuffers(const Pipeline& pipeline) {
@@ -253,14 +249,13 @@ void Swapchain::renderImGui(VkCommandBuffer commandBuffer) {
     ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), commandBuffer);
 }
 
-void Swapchain::drawFrame(const Pipeline& pipeline, bool showImGuiWindow) {
+void Swapchain::drawFrame(const Pipeline& pipeline, const HUDPipeline& hudPipeline, bool showImGuiWindow, bool showHUD) {
     vkWaitForFences(device.device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
 
     uint32_t imageIndex;
     VkResult result = vkAcquireNextImageKHR(device.device, swapchain, UINT64_MAX, imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
 
     if (result == VK_ERROR_OUT_OF_DATE_KHR) {
-        // Handle swapchain recreation if needed
         return;
     } else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
         throw std::runtime_error("Failed to acquire swapchain image");
@@ -289,12 +284,23 @@ void Swapchain::drawFrame(const Pipeline& pipeline, bool showImGuiWindow) {
     renderPassInfo.pClearValues = &clearColor;
 
     vkCmdBeginRenderPass(commandBuffers[imageIndex], &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-    vkCmdBindPipeline(commandBuffers[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.graphicsPipeline);
 
+    // World rendering (subpass 0)
+    vkCmdBindPipeline(commandBuffers[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.graphicsPipeline);
     VkDescriptorSet descriptorSets[] = {pipeline.descriptorSets[currentFrame]};
     vkCmdBindDescriptorSets(commandBuffers[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipelineLayout, 0, 1, descriptorSets, 0, nullptr);
-
     vkCmdDraw(commandBuffers[imageIndex], 3, 1, 0, 0);
+
+    // Transition to HUD subpass
+    vkCmdNextSubpass(commandBuffers[imageIndex], VK_SUBPASS_CONTENTS_INLINE);
+
+    // HUD rendering (subpass 1)
+    if (showHUD) {
+        vkCmdBindPipeline(commandBuffers[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, hudPipeline.graphicsPipeline);
+        VkDescriptorSet hudDescriptorSets[] = {hudPipeline.descriptorSets[currentFrame]};
+        vkCmdBindDescriptorSets(commandBuffers[imageIndex], VK_PIPELINE_BIND_POINT_GRAPHICS, hudPipeline.pipelineLayout, 0, 1, hudDescriptorSets, 0, nullptr);
+        vkCmdDraw(commandBuffers[imageIndex], 3, 1, 0, 0);
+    }
 
     if (showImGuiWindow) {
         renderImGui(commandBuffers[imageIndex]);
@@ -364,4 +370,38 @@ Swapchain::~Swapchain() {
         vkDestroySemaphore(device.device, renderFinishedSemaphores[i], nullptr);
         vkDestroyFence(device.device, inFlightFences[i], nullptr);
     }
+}
+
+// Helper functions for ImGui font texture creation
+VkCommandBuffer Swapchain::beginSingleTimeCommands(VkDevice device, VkCommandPool commandPool) {
+    VkCommandBufferAllocateInfo allocInfo = {};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandPool = commandPool;
+    allocInfo.commandBufferCount = 1;
+
+    VkCommandBuffer commandBuffer;
+    vkAllocateCommandBuffers(device, &allocInfo, &commandBuffer);
+
+    VkCommandBufferBeginInfo beginInfo = {};
+    beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+    vkBeginCommandBuffer(commandBuffer, &beginInfo);
+
+    return commandBuffer;
+}
+
+void Swapchain::endSingleTimeCommands(VkDevice device, VkQueue queue, VkCommandPool commandPool, VkCommandBuffer commandBuffer) {
+    vkEndCommandBuffer(commandBuffer);
+
+    VkSubmitInfo submitInfo = {};
+    submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &commandBuffer;
+
+    vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE);
+    vkQueueWaitIdle(queue);
+
+    vkFreeCommandBuffers(device, commandPool, 1, &commandBuffer);
 }

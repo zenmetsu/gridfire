@@ -1,7 +1,8 @@
 #include "device.hpp"
 #include "swapchain.hpp"
 #include "pipeline.hpp"
-#include "input.hpp"
+#include "hud_pipeline.hpp" // Added for HUD struct
+#include "input.hpp"        // Added for Input class
 #include <GLFW/glfw3.h>
 #include <stdexcept>
 #include <iostream>
@@ -9,11 +10,11 @@
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_vulkan.h>
 #include <sstream>
+#include <glm/gtc/quaternion.hpp> // Added for glm::quat
 
 int main() {
     glfwInit();
 
-    // Set up fullscreen window
     GLFWmonitor* monitor = glfwGetPrimaryMonitor();
     const GLFWvidmode* mode = glfwGetVideoMode(monitor);
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -27,14 +28,12 @@ int main() {
         throw std::runtime_error("Failed to create GLFW window");
     }
 
-    // Initialize ImGui
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     ImGui::StyleColorsDark();
 
-    // Initialize ImGui GLFW backend
     if (!ImGui_ImplGlfw_InitForVulkan(window, true)) {
         throw std::runtime_error("Failed to initialize ImGui GLFW backend");
     }
@@ -43,8 +42,21 @@ int main() {
         Device device(window);
         Swapchain swapchain(device);
         Pipeline pipeline(device, swapchain.renderPass, swapchain.extent, swapchain.MAX_FRAMES_IN_FLIGHT);
+        HUDPipeline hudPipeline(device, swapchain.renderPass, swapchain.extent, swapchain.MAX_FRAMES_IN_FLIGHT);
         swapchain.createFramebuffers(pipeline);
         Input input(window);
+
+        // Initialize bounding box
+        std::vector<Object> objects = {
+            {
+                glm::vec3(0.0f, 0.0f, 0.0f),
+                glm::quat(1.0f, 0.0f, 0.0f, 0.0f),
+                glm::vec3(100.0f, 100.0f, 100.0f),
+                glm::vec4(0.18f, 0.18f, 0.18f, 1.0f),
+                1, // Box type
+                0  // Default material
+            }
+        };
 
         double lastTime = glfwGetTime();
         while (!glfwWindowShouldClose(window)) {
@@ -53,30 +65,22 @@ int main() {
             float deltaTime = static_cast<float>(currentTime - lastTime);
             lastTime = currentTime;
 
-            // Start ImGui frame
             ImGui_ImplGlfw_NewFrame();
             ImGui::NewFrame();
 
-            // Check for exit
             bool shouldExit = input.shouldExit();
-
-            // Create ImGui debug window if enabled
             bool showImGuiWindow = input.toggleImGuiWindow();
+            bool showHUD = input.toggleHUD();
+
             if (showImGuiWindow) {
                 ImGui::SetNextWindowPos(ImVec2(swapchain.extent.width - 210.0f, 10.0f), ImGuiCond_Always);
                 ImGui::SetNextWindowSize(ImVec2(200.0f, 150.0f), ImGuiCond_Always);
                 ImGui::Begin("Debug Info", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoInputs);
-
-                // Frame time and FPS
                 float frameTimeMs = input.getFrameTime() * 1000.0f;
                 float fps = frameTimeMs > 0.0f ? 1000.0f / frameTimeMs : 0.0f;
                 ImGui::Text("Frame Time: %.2f ms", frameTimeMs);
                 ImGui::Text("FPS: %.1f", fps);
-
-                // Resolution
                 ImGui::Text("Resolution: %ux%u", swapchain.extent.width, swapchain.extent.height);
-
-                // Swapchain info
                 ImGui::Text("Image Count: %u", swapchain.getImageCount());
                 std::string presentModeStr;
                 switch (swapchain.getPresentMode()) {
@@ -87,20 +91,30 @@ int main() {
                     default: presentModeStr = "Unknown"; break;
                 }
                 ImGui::Text("Present Mode: %s", presentModeStr.c_str());
-
                 ImGui::End();
             }
 
-            // Render ImGui
             ImGui::Render();
 
-            // Update game state
             input.updateCamera(deltaTime);
             input.processImGuiInput();
-            pipeline.updateUBO(input.getCamera());
-            swapchain.drawFrame(pipeline, showImGuiWindow);
 
-            // Handle exit after rendering to ensure ImGui frame is complete
+            // Update HUD data
+            HUD hud;
+            hud.crosshairPos = glm::vec2(0.0f, 0.0f);
+            hud.crosshairSize = 32.0f / swapchain.extent.height;
+            hud.crosshairColor = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+            hud.windowPos = glm::vec2(0.0f, -0.9f);
+            hud.windowSize = glm::vec2(0.1f * swapchain.extent.width / swapchain.extent.height, 0.1f);
+            hud.windowAlpha = 0.5f;
+            hud.playerPos = input.getCamera().position;
+            hud.playerForward = input.getCamera().forward;
+            hud.playerRotation = glm::quat(input.getCamera().view);
+
+            pipeline.updateUBO(input.getCamera(), objects);
+            hudPipeline.updateUBO(input.getCamera(), hud, showHUD);
+            swapchain.drawFrame(pipeline, hudPipeline, showImGuiWindow, showHUD);
+
             if (shouldExit) {
                 glfwSetWindowShouldClose(window, GLFW_TRUE);
             }
@@ -108,7 +122,6 @@ int main() {
 
         device.waitIdle();
 
-        // Cleanup ImGui
         ImGui_ImplGlfw_Shutdown();
         ImGui::DestroyContext();
     } catch (const std::exception& e) {

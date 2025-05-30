@@ -1,24 +1,22 @@
-#include "pipeline.hpp"
+#include "hud_pipeline.hpp"
+#include "pipeline.hpp" // For Camera and HUD structs
 #include "gridfire_config.h"
 #include <stdexcept>
 #include <fstream>
 #include <glm/gtc/matrix_transform.hpp>
 #include <cstring>
-#include <iostream>
 
 struct UniformBufferObject {
     alignas(16) glm::mat4 view;
     alignas(16) glm::mat4 proj;
     alignas(16) glm::vec3 camPos;
     alignas(4) float time;
-    alignas(4) float aspectRatio; // Added for shader
-    alignas(4) int showHUD;      // Unused in world pipeline
+    alignas(4) float aspectRatio;
+    alignas(4) int showHUD;
 };
 
 static std::vector<char> readFile(const std::string& filename) {
-    // Try local development path first (build/shaders/)
     std::string devPath = "shaders/" + filename;
-    std::cout << "Attempting to load shader (dev): " << devPath << std::endl;
     std::ifstream file(devPath, std::ios::ate | std::ios::binary);
     if (file.is_open()) {
         size_t fileSize = static_cast<size_t>(file.tellg());
@@ -29,9 +27,7 @@ static std::vector<char> readFile(const std::string& filename) {
         return buffer;
     }
 
-    // Fall back to installed path
     std::string fullPath = std::string(GRIDFIRE_SHADER_DIR) + "/" + filename;
-    std::cout << "Attempting to load shader (installed): " << fullPath << std::endl;
     file.open(fullPath, std::ios::ate | std::ios::binary);
     if (!file.is_open()) {
         throw std::runtime_error("Failed to open file: " + fullPath + " (also tried " + devPath + ")");
@@ -44,11 +40,10 @@ static std::vector<char> readFile(const std::string& filename) {
     return buffer;
 }
 
-Pipeline::Pipeline(const Device& device, VkRenderPass renderPass, VkExtent2D extent, uint32_t maxFramesInFlight) 
+HUDPipeline::HUDPipeline(const Device& device, VkRenderPass renderPass, VkExtent2D extent, uint32_t maxFramesInFlight) 
     : device(device), currentFrame(0) {
-    // Load shaders
-    auto vertShaderCode = readFile("raymarch.vert.spv");
-    auto fragShaderCode = readFile("raymarch.frag.spv");
+    auto vertShaderCode = readFile("hud.vert.spv");
+    auto fragShaderCode = readFile("hud.frag.spv");
 
     VkShaderModule vertShaderModule;
     VkShaderModule fragShaderModule;
@@ -59,14 +54,14 @@ Pipeline::Pipeline(const Device& device, VkRenderPass renderPass, VkExtent2D ext
     createInfo.pCode = reinterpret_cast<const uint32_t*>(vertShaderCode.data());
 
     if (vkCreateShaderModule(device.device, &createInfo, nullptr, &vertShaderModule) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create vertex shader module");
+        throw std::runtime_error("Failed to create HUD vertex shader module");
     }
 
     createInfo.codeSize = fragShaderCode.size();
     createInfo.pCode = reinterpret_cast<const uint32_t*>(fragShaderCode.data());
 
     if (vkCreateShaderModule(device.device, &createInfo, nullptr, &fragShaderModule) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create fragment shader module");
+        throw std::runtime_error("Failed to create HUD fragment shader module");
     }
 
     VkPipelineShaderStageCreateInfo vertShaderStageInfo = {};
@@ -83,7 +78,6 @@ Pipeline::Pipeline(const Device& device, VkRenderPass renderPass, VkExtent2D ext
 
     VkPipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
 
-    // Vertex input (empty, since we use a full-screen triangle)
     VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
     vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
     vertexInputInfo.vertexBindingDescriptionCount = 0;
@@ -119,7 +113,7 @@ Pipeline::Pipeline(const Device& device, VkRenderPass renderPass, VkExtent2D ext
     rasterizer.rasterizerDiscardEnable = VK_FALSE;
     rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
     rasterizer.lineWidth = 1.0f;
-    rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+    rasterizer.cullMode = VK_CULL_MODE_NONE; // No culling for HUD
     rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
     rasterizer.depthBiasEnable = VK_FALSE;
 
@@ -130,7 +124,13 @@ Pipeline::Pipeline(const Device& device, VkRenderPass renderPass, VkExtent2D ext
 
     VkPipelineColorBlendAttachmentState colorBlendAttachment = {};
     colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-    colorBlendAttachment.blendEnable = VK_FALSE;
+    colorBlendAttachment.blendEnable = VK_TRUE;
+    colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+    colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+    colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
 
     VkPipelineColorBlendStateCreateInfo colorBlending = {};
     colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
@@ -138,19 +138,18 @@ Pipeline::Pipeline(const Device& device, VkRenderPass renderPass, VkExtent2D ext
     colorBlending.attachmentCount = 1;
     colorBlending.pAttachments = &colorBlendAttachment;
 
-    // Create descriptor set layout for UBO and object SSBO
     VkDescriptorSetLayoutBinding bindings[2] = {};
-    // UBO
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     bindings[0].descriptorCount = 1;
     bindings[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     bindings[0].pImmutableSamplers = nullptr;
-    // Object SSBO
     bindings[1].binding = 1;
     bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     bindings[1].descriptorCount = 1;
-    bindings[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    bindings[1].stage扶持
+
+System: stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
     bindings[1].pImmutableSamplers = nullptr;
 
     VkDescriptorSetLayoutCreateInfo layoutInfo = {};
@@ -160,7 +159,7 @@ Pipeline::Pipeline(const Device& device, VkRenderPass renderPass, VkExtent2D ext
 
     VkDescriptorSetLayout descriptorSetLayout;
     if (vkCreateDescriptorSetLayout(device.device, &layoutInfo, nullptr, &descriptorSetLayout) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create descriptor set layout");
+        throw std::runtime_error("Failed to create HUD descriptor set layout");
     }
 
     VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
@@ -170,7 +169,7 @@ Pipeline::Pipeline(const Device& device, VkRenderPass renderPass, VkExtent2D ext
     pipelineLayoutInfo.pushConstantRangeCount = 0;
 
     if (vkCreatePipelineLayout(device.device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create pipeline layout");
+        throw std::runtime_error("Failed to create HUD pipeline layout");
     }
 
     VkGraphicsPipelineCreateInfo pipelineInfo = {};
@@ -185,24 +184,23 @@ Pipeline::Pipeline(const Device& device, VkRenderPass renderPass, VkExtent2D ext
     pipelineInfo.pColorBlendState = &colorBlending;
     pipelineInfo.layout = pipelineLayout;
     pipelineInfo.renderPass = renderPass;
-    pipelineInfo.subpass = 0; // First subpass for world rendering
-    pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
+    pipelineInfo.subpass = 1; // Second subpass for HUD
 
     if (vkCreateGraphicsPipelines(device.device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipeline) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create graphics pipeline");
+        throw std::runtime_error("Failed to create HUD graphics pipeline");
     }
 
     vkDestroyShaderModule(device.device, fragShaderModule, nullptr);
     vkDestroyShaderModule(device.device, vertShaderModule, nullptr);
 
-    // Create uniform buffers and object SSBOs
+    // Create uniform buffers
     uniformBuffers.resize(maxFramesInFlight);
     uniformBuffersMemory.resize(maxFramesInFlight);
-    objectBuffers.resize(maxFramesInFlight);
-    objectBuffersMemory.resize(maxFramesInFlight);
+    hudBuffers.resize(maxFramesInFlight);
+    hudBuffersMemory.resize(maxFramesInFlight);
 
     VkDeviceSize uboSize = sizeof(UniformBufferObject);
-    VkDeviceSize objectBufferSize = sizeof(Object) * 100; // Max 100 objects (adjust as needed)
+    VkDeviceSize hudBufferSize = sizeof(HUD);
 
     VkPhysicalDeviceMemoryProperties memProperties;
     vkGetPhysicalDeviceMemoryProperties(device.physicalDevice, &memProperties);
@@ -216,7 +214,7 @@ Pipeline::Pipeline(const Device& device, VkRenderPass renderPass, VkExtent2D ext
         bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
         if (vkCreateBuffer(device.device, &bufferInfo, nullptr, &uniformBuffers[i]) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create uniform buffer");
+            throw std::runtime_error("Failed to create HUD uniform buffer");
         }
 
         VkMemoryRequirements memRequirements;
@@ -237,26 +235,26 @@ Pipeline::Pipeline(const Device& device, VkRenderPass renderPass, VkExtent2D ext
         allocInfo.memoryTypeIndex = memoryTypeIndex;
 
         if (vkAllocateMemory(device.device, &allocInfo, nullptr, &uniformBuffersMemory[i]) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to allocate uniform buffer memory");
+            throw std::runtime_error("Failed to allocate HUD uniform buffer memory");
         }
 
         vkBindBufferMemory(device.device, uniformBuffers[i], uniformBuffersMemory[i], 0);
 
-        // Object SSBO
-        bufferInfo.size = objectBufferSize;
+        // HUD SSBO
+        bufferInfo.size = hudBufferSize;
         bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
 
-        if (vkCreateBuffer(device.device, &bufferInfo, nullptr, &objectBuffers[i]) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to create object SSBO");
+        if (vkCreateBuffer(device.device, &bufferInfo, nullptr, &hudBuffers[i]) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to create HUD SSBO");
         }
 
-        vkGetBufferMemoryRequirements(device.device, objectBuffers[i], &memRequirements);
+        vkGetBufferMemoryRequirements(device.device, hudBuffers[i], &memRequirements);
         allocInfo.allocationSize = memRequirements.size;
-        if (vkAllocateMemory(device.device, &allocInfo, nullptr, &objectBuffersMemory[i]) != VK_SUCCESS) {
-            throw std::runtime_error("Failed to allocate object SSBO memory");
+        if (vkAllocateMemory(device.device, &allocInfo, nullptr, &hudBuffersMemory[i]) != VK_SUCCESS) {
+            throw std::runtime_error("Failed to allocate HUD SSBO memory");
         }
 
-        vkBindBufferMemory(device.device, objectBuffers[i], objectBuffersMemory[i], 0);
+        vkBindBufferMemory(device.device, hudBuffers[i], hudBuffersMemory[i], 0);
     }
 
     // Create descriptor pool
@@ -273,7 +271,7 @@ Pipeline::Pipeline(const Device& device, VkRenderPass renderPass, VkExtent2D ext
 
     VkDescriptorPool descriptorPool;
     if (vkCreateDescriptorPool(device.device, &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to create descriptor pool");
+        throw std::runtime_error("Failed to create HUD descriptor pool");
     }
 
     // Allocate descriptor sets
@@ -286,7 +284,7 @@ Pipeline::Pipeline(const Device& device, VkRenderPass renderPass, VkExtent2D ext
 
     descriptorSets.resize(maxFramesInFlight);
     if (vkAllocateDescriptorSets(device.device, &allocInfo, descriptorSets.data()) != VK_SUCCESS) {
-        throw std::runtime_error("Failed to allocate descriptor sets");
+        throw std::runtime_error("Failed to allocate HUD descriptor sets");
     }
 
     // Update descriptor sets
@@ -296,13 +294,12 @@ Pipeline::Pipeline(const Device& device, VkRenderPass renderPass, VkExtent2D ext
         uboInfo.offset = 0;
         uboInfo.range = sizeof(UniformBufferObject);
 
-        VkDescriptorBufferInfo objectInfo = {};
-        objectInfo.buffer = objectBuffers[i];
-        objectInfo.offset = 0;
-        objectInfo.range = objectBufferSize;
+        VkDescriptorBufferInfo hudInfo = {};
+        hudInfo.buffer = hudBuffers[i];
+        hudInfo.offset = 0;
+        hudInfo.range = hudBufferSize;
 
         VkWriteDescriptorSet descriptorWrites[2] = {};
-        // UBO
         descriptorWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         descriptorWrites[0].dstSet = descriptorSets[i];
         descriptorWrites[0].dstBinding = 0;
@@ -310,48 +307,47 @@ Pipeline::Pipeline(const Device& device, VkRenderPass renderPass, VkExtent2D ext
         descriptorWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
         descriptorWrites[0].descriptorCount = 1;
         descriptorWrites[0].pBufferInfo = &uboInfo;
-        // Object SSBO
+
         descriptorWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         descriptorWrites[1].dstSet = descriptorSets[i];
         descriptorWrites[1].dstBinding = 1;
         descriptorWrites[1].dstArrayElement = 0;
         descriptorWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         descriptorWrites[1].descriptorCount = 1;
-        descriptorWrites[1].pBufferInfo = &objectInfo;
+        descriptorWrites[1].pBufferInfo = &hudInfo;
 
         vkUpdateDescriptorSets(device.device, 2, descriptorWrites, 0, nullptr);
     }
 }
 
-void Pipeline::updateUBO(const Camera& camera, const std::vector<Object>& objects) {
+void HUDPipeline::updateUBO(const Camera& camera, const HUD& hud, bool showHUD) {
     UniformBufferObject ubo = {};
     ubo.view = camera.view;
     ubo.proj = camera.proj;
     ubo.camPos = camera.position;
     ubo.time = static_cast<float>(glfwGetTime());
     ubo.aspectRatio = camera.proj[1][1] / camera.proj[0][0];
-    ubo.showHUD = 0; // Unused in world pipeline
+    ubo.showHUD = showHUD ? 1 : 0;
 
     void* data;
     vkMapMemory(device.device, uniformBuffersMemory[currentFrame], 0, sizeof(ubo), 0, &data);
     memcpy(data, &ubo, sizeof(ubo));
     vkUnmapMemory(device.device, uniformBuffersMemory[currentFrame]);
 
-    // Update Object SSBO
-    vkMapMemory(device.device, objectBuffersMemory[currentFrame], 0, sizeof(Object) * objects.size(), 0, &data);
-    memcpy(data, objects.data(), sizeof(Object) * objects.size());
-    vkUnmapMemory(device.device, objectBuffersMemory[currentFrame]);
+    vkMapMemory(device.device, hudBuffersMemory[currentFrame], 0, sizeof(HUD), 0, &data);
+    memcpy(data, &hud, sizeof(HUD));
+    vkUnmapMemory(device.device, hudBuffersMemory[currentFrame]);
 
     currentFrame = (currentFrame + 1) % uniformBuffers.size();
 }
 
-Pipeline::~Pipeline() {
+HUDPipeline::~HUDPipeline() {
     vkDestroyPipeline(device.device, graphicsPipeline, nullptr);
     vkDestroyPipelineLayout(device.device, pipelineLayout, nullptr);
     for (size_t i = 0; i < uniformBuffers.size(); ++i) {
         vkDestroyBuffer(device.device, uniformBuffers[i], nullptr);
         vkFreeMemory(device.device, uniformBuffersMemory[i], nullptr);
-        vkDestroyBuffer(device.device, objectBuffers[i], nullptr);
-        vkFreeMemory(device.device, objectBuffersMemory[i], nullptr);
+        vkDestroyBuffer(device.device, hudBuffers[i], nullptr);
+        vkFreeMemory(device.device, hudBuffersMemory[i], nullptr);
     }
 }

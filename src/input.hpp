@@ -4,7 +4,7 @@
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <glm/gtx/quaternion.hpp>
-#include "pipeline.hpp" // Added for Camera definition
+#include "pipeline.hpp" // For Camera definition
 
 struct Player {
     glm::vec3 position;
@@ -19,19 +19,22 @@ public:
     Input(GLFWwindow* window);
     void updateCamera(float deltaTime);
     bool toggleImGuiWindow();
+    bool toggleHUD(); // Added for HUD toggle
     bool shouldExit();
     void processImGuiInput();
     float getFrameTime() const;
-    Camera getCamera() const; // Returns Camera for compatibility with pipeline.hpp
+    Camera getCamera() const;
 
 private:
     GLFWwindow* window;
-    Player player; // Renamed from camera
-    glm::quat orientation; // Quaternion for player orientation
+    Player player;
+    glm::quat orientation;
     bool firstMouse;
     double lastX, lastY;
     bool lastF3State;
     bool showImGuiWindow;
+    bool lastF4State; // Added for HUD toggle
+    bool showHUD;     // Added for HUD toggle
     bool lastF9State;
     float frameTime;
 };

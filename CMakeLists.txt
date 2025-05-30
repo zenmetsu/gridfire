@@ -13,7 +13,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Set default build type if not specified
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
-	set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Choose the type of build" FORCE)
+    set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Choose the type of build" FORCE)
     set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release" "MinSizeRel" "RelWithDebInfo")
 endif()
 
@@ -81,6 +81,8 @@ set(SHADER_DIR "${CMAKE_SOURCE_DIR}/src/shaders")
 set(SHADER_FILES
     "${SHADER_DIR}/raymarch.vert"
     "${SHADER_DIR}/raymarch.frag"
+    "${SHADER_DIR}/hud.vert"      # Added HUD vertex shader
+    "${SHADER_DIR}/hud.frag"      # Added HUD fragment shader
 )
 
 foreach(SHADER ${SHADER_FILES})
@@ -105,6 +107,7 @@ add_executable(gridfire
     src/swapchain.cpp
     src/pipeline.cpp
     src/input.cpp
+    src/hud_pipeline.cpp           # Added HUD pipeline source file
 )
 
 # Ensure shaders are built before the executable
